@@ -7,7 +7,7 @@ Author
 ------
 Mirco Ravanelli, Ju-Chieh Chou, Loren Lugosch 2020
 """
-
+import argparse
 import os
 import csv
 import random
@@ -454,3 +454,89 @@ def check_librispeech_folders(data_folder, splits):
                 "Librispeech dataset)" % split_folder
             )
             raise OSError(err_msg)
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--data_folder",
+        required=True,
+        type=str,
+        const=True,
+        nargs="?",
+        help="Path to the folder where the original LibriSpeech dataset is stored.",
+    )
+    parser.add_argument(
+        "--tr_splits",
+        type=list,
+        const=True,
+        default=[],
+        nargs="?",
+        help="List of train splits to prepare from ['test-others','train-clean-100','train-clean-360','train-other-500']."
+    )
+    parser.add_argument(
+        "--dev_splits",
+        type=list,
+        const=True,
+        default=[],
+        nargs="?",
+        help="List of dev splits to prepare from ['dev-clean','dev-others']."
+    )
+    parser.add_argument(
+        "--te_splits",
+        type=list,
+        const=True,
+        default=[],
+        nargs="?",
+        help="List of test splits to prepare from ['test-clean','test-others']."
+    )
+    parser.add_argument(
+        "--save_folder",
+        required=True,
+        type=str,
+        const=True,
+        nargs="?",
+        help="The directory where to store the csv files."
+    )
+    parser.add_argument(
+        "--select_n_sentences",
+        type=int,
+        const=True,
+        default=None,
+        nargs="?",
+        help="If not None, only pick this many sentences."
+    )
+    parser.add_argument(
+        "--merge_lst",
+        type=list,
+        const=True,
+        default=[],
+        nargs="?",
+        help="List of librispeech splits (e.g, train-clean, train-clean-360,..) to merge in a singe csv file."
+    )
+    parser.add_argument(
+        "--merge_name",
+        type=str,
+        const=True,
+        default="",
+        nargs="?",
+        help="Name of the merged csv file."
+    )
+    parser.add_argument(
+        "--create_lexicon",
+        type=bool,
+        const=True,
+        default=False,
+        nargs="?",
+        help="If True, it outputs csv files containing mapping between grapheme to phonemes. Use it for training a G2P system."
+    )
+    parser.add_argument(
+        "--skip_prep",
+        type=bool,
+        const=True,
+        default=False,
+        nargs="?",
+        help="If True, data preparation is skipped."
+    )
+    prepare_librispeech(**vars(parser.parse_args()))
