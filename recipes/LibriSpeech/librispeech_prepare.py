@@ -463,14 +463,12 @@ if __name__ == '__main__':
         "--data_folder",
         required=True,
         type=str,
-        const=True,
         nargs="?",
         help="Path to the folder where the original LibriSpeech dataset is stored.",
     )
     parser.add_argument(
         "--tr_splits",
         type=str,
-        const=True,
         default=[],
         nargs="*",
         help="List of train splits to prepare from ['test-others','train-clean-100','train-clean-360','train-other-500']."
@@ -478,7 +476,6 @@ if __name__ == '__main__':
     parser.add_argument(
         "--dev_splits",
         type=str,
-        const=True,
         default=[],
         nargs="*",
         help="List of dev splits to prepare from ['dev-clean','dev-others']."
@@ -486,7 +483,6 @@ if __name__ == '__main__':
     parser.add_argument(
         "--te_splits",
         type=str,
-        const=True,
         default=[],
         nargs="*",
         help="List of test splits to prepare from ['test-clean','test-others']."
@@ -495,14 +491,12 @@ if __name__ == '__main__':
         "--save_folder",
         required=True,
         type=str,
-        const=True,
         nargs="?",
         help="The directory where to store the csv files."
     )
     parser.add_argument(
         "--select_n_sentences",
         type=int,
-        const=True,
         default=None,
         nargs="?",
         help="If not None, only pick this many sentences."
@@ -510,7 +504,6 @@ if __name__ == '__main__':
     parser.add_argument(
         "--merge_lst",
         type=str,
-        const=True,
         default=[],
         nargs="*",
         help="List of librispeech splits (e.g, train-clean, train-clean-360,..) to merge in a singe csv file."
@@ -518,7 +511,6 @@ if __name__ == '__main__':
     parser.add_argument(
         "--merge_name",
         type=str,
-        const=True,
         default="",
         nargs="?",
         help="Name of the merged csv file."
@@ -526,7 +518,6 @@ if __name__ == '__main__':
     parser.add_argument(
         "--create_lexicon",
         type=bool,
-        const=True,
         default=False,
         nargs="?",
         help="If True, it outputs csv files containing mapping between grapheme to phonemes. Use it for training a G2P system."
@@ -534,7 +525,6 @@ if __name__ == '__main__':
     parser.add_argument(
         "--skip_prep",
         type=bool,
-        const=True,
         default=False,
         nargs="?",
         help="If True, data preparation is skipped."
