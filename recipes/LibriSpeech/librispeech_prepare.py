@@ -469,26 +469,26 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--tr_splits",
-        type=list,
+        type=str,
         const=True,
         default=[],
-        nargs="?",
+        nargs="*",
         help="List of train splits to prepare from ['test-others','train-clean-100','train-clean-360','train-other-500']."
     )
     parser.add_argument(
         "--dev_splits",
-        type=list,
+        type=str,
         const=True,
         default=[],
-        nargs="?",
+        nargs="*",
         help="List of dev splits to prepare from ['dev-clean','dev-others']."
     )
     parser.add_argument(
         "--te_splits",
-        type=list,
+        type=str,
         const=True,
         default=[],
-        nargs="?",
+        nargs="*",
         help="List of test splits to prepare from ['test-clean','test-others']."
     )
     parser.add_argument(
@@ -509,10 +509,10 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--merge_lst",
-        type=list,
+        type=str,
         const=True,
         default=[],
-        nargs="?",
+        nargs="*",
         help="List of librispeech splits (e.g, train-clean, train-clean-360,..) to merge in a singe csv file."
     )
     parser.add_argument(
