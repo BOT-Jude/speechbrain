@@ -3,7 +3,7 @@
 # Authors: Rudolf A Braun 2022, Guillermo Cambara 2022, Titouan Parcollet 2022
 # ################################
 
-data_folder: librispeech_prepared
+data_folder: ../../../../../dataset
 output_folder: wav2vec2-test
 save_folder: !ref <output_folder>/save
 # Logging file for every N optimizer steps (many lines)
