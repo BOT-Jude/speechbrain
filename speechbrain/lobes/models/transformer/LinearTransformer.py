@@ -338,7 +338,7 @@ class LinearTransformerEncoder(nn.Module):
     def __init__(
             self,
             num_layers,
-            n_heads,
+            nhead,
             d_ffn,
             input_shape=None,
             d_model=None,
@@ -358,7 +358,7 @@ class LinearTransformerEncoder(nn.Module):
             [
                 LinearTransformerEncoderLayer(
                     d_ffn=d_ffn,
-                    n_heads=n_heads,
+                    n_heads=nhead,
                     d_model=d_model,
                     kdim=kdim,
                     vdim=vdim,
