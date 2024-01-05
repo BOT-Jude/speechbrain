@@ -17,13 +17,13 @@ from speechbrain.nnet.CNN import Conv1d
 def causal_linear_attention(qs, ks, vs):
     key_values = ks.unsqueeze(-1) @ vs.unsqueeze(-2)
     data_matrix = torch.cumsum(key_values, dim=-3)
-    return qs @ data_matrix
+    return (qs.unsqueeze(-2) @ data_matrix).flatten(-2, -1)
 
 
 def linear_attention(qs, ks, vs):
     key_values = ks.unsqueeze(-1) @ vs.unsqueeze(-2)
     data_matrix = torch.sum(key_values, dim=-3, keepdim=True)
-    return qs @ data_matrix
+    return (qs.unsqueeze(-2) @ data_matrix).flatten(-2, -1)
 
 
 class GenericMultiHeadedAttention(nn.Module):
@@ -33,35 +33,36 @@ class GenericMultiHeadedAttention(nn.Module):
         ----------
         d_model: int
             total number of features in input vectors
-        n_heads : int
+        nhead : int
             parallel attention heads.
         attention_fn : supports __apply__
             attention function that takes batched queries, keys and values
         kdim : int
-            total number of features in key (default: None).
+            total number of features in key
         vdim : int
-            total number of features in value (default: None).
+            total number of features in value
         """
 
     def __init__(
             self,
-            d_model,
-            n_heads,
-            attention_fn,
-            kdim,
-            vdim
+            d_model=None,
+            nhead=None,
+            attention_fn=None,
+            kdim=None,
+            vdim=None
     ):
         super().__init__()
 
-        self.n_heads = n_heads
+        self.nhead = nhead
         self.d_model = d_model
         self.attention_fn = attention_fn
         self.kdim = kdim
         self.vdim = vdim
 
-        self.query_proj = torch.randn(1, d_model, n_heads * kdim)
-        self.key_proj = torch.randn(1, d_model, n_heads * kdim)
-        self.value_proj = torch.randn(1, d_model, n_heads * vdim)
+        self.query_proj = torch.randn(1, d_model, nhead * kdim)
+        self.key_proj = torch.randn(1, d_model, nhead * kdim)
+        self.value_proj = torch.randn(1, d_model, nhead * vdim)
+        self.output_proj = torch.randn(1, nhead * vdim, d_model)
 
     def forward(
             self,
@@ -85,7 +86,7 @@ class GenericMultiHeadedAttention(nn.Module):
 
         B, L, E = query.shape
         _, S, _ = key.shape
-        H, E_q, E_k, E_v = self.n_heads, self.kdim, self.kdim, self.vdim
+        H, E_q, E_k, E_v = self.nhead, self.kdim, self.kdim, self.vdim
 
         # Apply head projections to query, keys and values
         qs = (query @ self.query_proj).view(B, L, H, E_q).transpose(-3, -2)  # -> B, H, L, E_q
@@ -103,6 +104,10 @@ class GenericMultiHeadedAttention(nn.Module):
         # Reshape to reintroduce head dimension
         output = output.reshape(B, H, L, E_v)
 
+        # Project back up to model dim
+        output = output.transpose(-3, -2).flatten(-2, -1)  # -> B, L, H*E_v
+        output = output @ self.output_proj
+
         return output
 
 
@@ -113,7 +118,7 @@ class MultiHeadedLinearAttention(GenericMultiHeadedAttention):
         ----------
         d_model: int
             total number of features in input vectors
-        n_heads : int
+        nhead : int
             parallel attention heads.
         kdim : int
             total number of features in key (default: None).
@@ -123,10 +128,10 @@ class MultiHeadedLinearAttention(GenericMultiHeadedAttention):
 
     def __init__(
             self,
-            d_model,
-            n_heads,
-            kdim,
-            vdim,
+            d_model=None,
+            nhead=None,
+            kdim=None,
+            vdim=None,
             causal=True
     ):
 
@@ -135,7 +140,7 @@ class MultiHeadedLinearAttention(GenericMultiHeadedAttention):
         else:
             attention_fn = linear_attention
 
-        super().__init__(d_model, n_heads, attention_fn, kdim, vdim)
+        super().__init__(d_model=d_model, nhead=nhead, attention_fn=attention_fn, kdim=kdim, vdim=vdim)
 
 
 class LinearTransformerEncoderLayer(nn.Module):
@@ -144,7 +149,7 @@ class LinearTransformerEncoderLayer(nn.Module):
     ----------
     d_ffn: int, optional
         The dimension of the feedforward network model hidden layer.
-    n_heads: int
+    nhead: int
         The number of heads in the multi-head attention models (default=8).
     d_model: int
         The number of expected features in the encoder/decoder inputs (default=512).
@@ -183,7 +188,7 @@ class LinearTransformerEncoderLayer(nn.Module):
     def __init__(
             self,
             d_ffn,
-            n_heads,
+            nhead,
             d_model,
             kdim=None,
             vdim=None,
@@ -197,7 +202,7 @@ class LinearTransformerEncoderLayer(nn.Module):
         super().__init__()
 
         self.self_att = MultiHeadedLinearAttention(
-            n_heads=n_heads,
+            nhead=nhead,
             d_model=d_model,
             kdim=kdim,
             vdim=vdim,
@@ -273,7 +278,7 @@ class LinearTransformerEncoderLayer(nn.Module):
         output = src + self.dropout2(output)
         if not self.normalize_before:
             output = self.norm2(output)
-        return output, None
+        return output
 
 
 class LinearTransformerEncoder(nn.Module):
@@ -340,7 +345,6 @@ class LinearTransformerEncoder(nn.Module):
             num_layers,
             nhead,
             d_ffn,
-            input_shape=None,
             d_model=None,
             kdim=None,
             vdim=None,
@@ -358,7 +362,7 @@ class LinearTransformerEncoder(nn.Module):
             [
                 LinearTransformerEncoderLayer(
                     d_ffn=d_ffn,
-                    n_heads=nhead,
+                    nhead=nhead,
                     d_model=d_model,
                     kdim=kdim,
                     vdim=vdim,
@@ -402,3 +406,9 @@ class LinearTransformerEncoder(nn.Module):
 
         output = self.norm(output)
         return output
+
+
+if __name__ == '__main__':
+    encoder = LinearTransformerEncoder(num_layers=4, nhead=4, d_ffn=128, d_model=64, kdim=8, vdim=10, dropout=0.0)
+    src = torch.randn(2, 16, 64)
+    print(encoder(src))
