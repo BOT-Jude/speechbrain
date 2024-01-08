@@ -109,7 +109,7 @@ class GenericMultiHeadedAttention(nn.Module):
 
         # duplicate mask for each head (if there is a mask)
         if key_padding_mask is not None:
-            head_mask = key_padding_mask.unsqueeze(-1).broadcast_to(ks.shape[0:3])
+            head_mask = key_padding_mask.unsqueeze(-2).broadcast_to(ks.shape[0:3])
             head_mask = head_mask.flatten(0, 1)
         else:
             head_mask = None
