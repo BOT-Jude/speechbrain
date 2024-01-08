@@ -49,9 +49,9 @@ class GenericMultiHeadedAttention(nn.Module):
             parallel attention heads.
         attention_fn : supports __apply__
             attention function that takes batched queries, keys and values
-        kdim : int
+        kdim : int (optional)
             total number of features in key
-        vdim : int
+        vdim : int (optional)
             total number of features in value
         """
 
@@ -68,12 +68,14 @@ class GenericMultiHeadedAttention(nn.Module):
         self.nhead = nhead
         self.d_model = d_model
         self.attention_fn = attention_fn
-        self.kdim = kdim
-        self.vdim = vdim
-        self.query_proj = torch.randn(1, d_model, nhead * kdim)
-        self.key_proj = torch.randn(1, d_model, nhead * kdim)
-        self.value_proj = torch.randn(1, d_model, nhead * vdim)
-        self.output_proj = torch.randn(1, nhead * vdim, d_model)
+
+        self.kdim = kdim if kdim is not None else d_model  # to replicate nn.MultiheadAttention
+        self.vdim = vdim if vdim is not None else d_model  # to replicate nn.MultiheadAttention
+
+        self.query_proj = torch.randn(1, self.d_model, self.nhead * self.kdim)
+        self.key_proj = torch.randn(1, self.d_model, self.nhead * self.kdim)
+        self.value_proj = torch.randn(1, self.d_model, self.nhead * self.vdim)
+        self.output_proj = torch.randn(1, self.nhead * self.vdim, self.d_model)
 
     def forward(
             self,
