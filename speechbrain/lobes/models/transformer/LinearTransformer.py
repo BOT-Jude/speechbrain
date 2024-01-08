@@ -72,10 +72,10 @@ class GenericMultiHeadedAttention(nn.Module):
         self.kdim = kdim if kdim is not None else d_model  # to replicate nn.MultiheadAttention
         self.vdim = vdim if vdim is not None else d_model  # to replicate nn.MultiheadAttention
 
-        self.query_proj = torch.randn(1, self.d_model, self.nhead * self.kdim)
-        self.key_proj = torch.randn(1, self.d_model, self.nhead * self.kdim)
-        self.value_proj = torch.randn(1, self.d_model, self.nhead * self.vdim)
-        self.output_proj = torch.randn(1, self.nhead * self.vdim, self.d_model)
+        self.query_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead * self.kdim))
+        self.key_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead * self.kdim))
+        self.value_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead * self.vdim))
+        self.output_proj = nn.Parameter(torch.randn(1, self.nhead * self.vdim, self.d_model))
 
     def forward(
             self,
