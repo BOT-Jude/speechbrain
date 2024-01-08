@@ -14,13 +14,25 @@ from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.CNN import Conv1d
 
 
-def causal_linear_attention(qs, ks, vs):
+def causal_linear_attention(qs, ks, vs, key_padding_mask=None):
+
+    if key_padding_mask is not None:
+        # is a binary mask of the shape B, T
+        broadcast_mask = key_padding_mask.unsqueeze(-1).broadcast_to(vs.shape)
+        vs = vs.masked_fill_(broadcast_mask, 0.0)
+
     key_values = ks.unsqueeze(-1) @ vs.unsqueeze(-2)
     data_matrix = torch.cumsum(key_values, dim=-3)
     return (qs.unsqueeze(-2) @ data_matrix).flatten(-2, -1)
 
 
-def linear_attention(qs, ks, vs):
+def linear_attention(qs, ks, vs, key_padding_mask=None):
+
+    if key_padding_mask is not None:
+        # is a binary mask of the shape B, T
+        broadcast_mask = key_padding_mask.unsqueeze(-1).broadcast_to(vs.shape)
+        vs = vs.masked_fill_(broadcast_mask, 0.0)
+
     key_values = ks.unsqueeze(-1) @ vs.unsqueeze(-2)
     data_matrix = torch.sum(key_values, dim=-3, keepdim=True)
     return (qs.unsqueeze(-2) @ data_matrix).flatten(-2, -1)
@@ -58,7 +70,6 @@ class GenericMultiHeadedAttention(nn.Module):
         self.attention_fn = attention_fn
         self.kdim = kdim
         self.vdim = vdim
-
         self.query_proj = torch.randn(1, d_model, nhead * kdim)
         self.key_proj = torch.randn(1, d_model, nhead * kdim)
         self.value_proj = torch.randn(1, d_model, nhead * vdim)
@@ -69,6 +80,7 @@ class GenericMultiHeadedAttention(nn.Module):
             query,
             key,
             value,
+            key_padding_mask=None
     ):
         """
             Arguments
@@ -93,13 +105,20 @@ class GenericMultiHeadedAttention(nn.Module):
         ks = (key   @   self.key_proj).view(B, S, H, E_k).transpose(-3, -2)  # -> B, H, S, E_k
         vs = (value @ self.value_proj).view(B, S, H, E_v).transpose(-3, -2)  # -> B, H, S, E_v
 
+        # duplicate mask for each head (if there is a mask)
+        if key_padding_mask is not None:
+            head_mask = key_padding_mask.unsqueeze(-1).broadcast_to(ks.shape[0:3])
+            head_mask = head_mask.flatten(0, 1)
+        else:
+            head_mask = None
+
         # Merge head dimension into batch dimension
         qs = qs.flatten(0, 1)
         ks = ks.flatten(0, 1)
         vs = vs.flatten(0, 1)
 
         # Apply attention function
-        output = self.attention_fn(qs, ks, vs)
+        output = self.attention_fn(qs, ks, vs, head_mask)
 
         # Reshape to reintroduce head dimension
         output = output.reshape(B, H, L, E_v)
@@ -244,12 +263,15 @@ class LinearTransformerEncoderLayer(nn.Module):
     def forward(
             self,
             src,
+            padding_mask=None
     ):
         """
         Arguments
         ----------
         src : torch.Tensor
             The sequence to the encoder layer.
+        src_mask : torch.Tensor
+            The areas of the src that are masked
         """
 
         if self.normalize_before:
@@ -261,6 +283,7 @@ class LinearTransformerEncoderLayer(nn.Module):
             src1,
             src1,
             src1,
+            key_padding_mask=padding_mask
         )
 
         # add & norm
@@ -383,12 +406,15 @@ class LinearTransformerEncoder(nn.Module):
     def forward(
             self,
             src,
+            src_key_padding_mask=None
     ):
         """
         Arguments
         ----------
         src : tensor
             The sequence to the encoder layer (required).
+        src_key_padding_mask : torch.Tensor
+            The areas of the src that are masked
         """
         output = src
         if self.layerdrop_prob > 0.0:
@@ -402,7 +428,7 @@ class LinearTransformerEncoder(nn.Module):
                     or self.layerdrop_prob == 0.0
                     or keep_probs[i] > self.layerdrop_prob
             ):
-                output = enc_layer(output)
+                output = enc_layer(output, padding_mask=src_key_padding_mask)
 
         output = self.norm(output)
         return output
