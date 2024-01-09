@@ -72,10 +72,13 @@ class GenericMultiHeadedAttention(nn.Module):
         self.kdim = kdim if kdim is not None else d_model  # to replicate nn.MultiheadAttention
         self.vdim = vdim if vdim is not None else d_model  # to replicate nn.MultiheadAttention
 
-        self.query_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead * self.kdim))
-        self.key_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead * self.kdim))
-        self.value_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead * self.vdim))
-        self.output_proj = nn.Parameter(torch.randn(1, self.nhead * self.vdim, self.d_model))
+        assert self.kdim % self.nhead == 0, "number of heads must divide key-dim evenly"
+        assert self.vdim % self.nhead == 0, "number of heads must divide value-dim evenly"
+
+        self.query_proj = nn.Parameter(torch.randn(1, self.d_model, self.kdim))
+        self.key_proj = nn.Parameter(torch.randn(1, self.d_model, self.kdim))
+        self.value_proj = nn.Parameter(torch.randn(1, self.d_model, self.vdim))
+        self.output_proj = nn.Parameter(torch.randn(1, self.vdim, self.d_model))
 
     def forward(
             self,
@@ -100,7 +103,7 @@ class GenericMultiHeadedAttention(nn.Module):
 
         B, L, E = query.shape
         _, S, _ = key.shape
-        H, E_q, E_k, E_v = self.nhead, self.kdim, self.kdim, self.vdim
+        H, E_q, E_k, E_v = self.nhead, self.kdim // self.nhead, self.kdim // self.nhead, self.vdim // self.nhead
 
         # Apply head projections to query, keys and values
         qs = (query @ self.query_proj).view(B, L, H, E_q).transpose(-3, -2)  # -> B, H, L, E_q
