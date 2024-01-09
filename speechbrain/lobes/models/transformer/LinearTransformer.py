@@ -127,7 +127,6 @@ class GenericMultiHeadedAttention(nn.Module):
 
         # Reshape to reintroduce head dimension
         output = output.reshape(B, H, L, E_v)
-        output = output.transpose(-3, -2)
 
         # Project back up to model dim
         output = output.transpose(-3, -2).flatten(-2, -1)  # -> B, L, H*E_v
