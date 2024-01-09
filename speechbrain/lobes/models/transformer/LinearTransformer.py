@@ -127,12 +127,13 @@ class GenericMultiHeadedAttention(nn.Module):
 
         # Reshape to reintroduce head dimension
         output = output.reshape(B, H, L, E_v)
+        output = output.transpose(-3, -2)
 
         # Project back up to model dim
         output = output.transpose(-3, -2).flatten(-2, -1)  # -> B, L, H*E_v
         output = output @ self.output_proj
 
-        return output
+        return output, None  # currently doesn't support returning attention weights
 
 
 class MultiHeadedLinearAttention(GenericMultiHeadedAttention):
@@ -284,7 +285,7 @@ class LinearTransformerEncoderLayer(nn.Module):
         else:
             src1 = src
 
-        output = self.self_att(
+        output, attention_weights = self.self_att(
             src1,
             src1,
             src1,
@@ -306,7 +307,8 @@ class LinearTransformerEncoderLayer(nn.Module):
         output = src + self.dropout2(output)
         if not self.normalize_before:
             output = self.norm2(output)
-        return output
+
+        return output, attention_weights
 
 
 class LinearTransformerEncoder(nn.Module):
@@ -412,6 +414,7 @@ class LinearTransformerEncoder(nn.Module):
             self,
             src,
             src_key_padding_mask=None
+            # in the future we may want to support positional attention weights?
     ):
         """
         Arguments
@@ -427,16 +430,18 @@ class LinearTransformerEncoder(nn.Module):
         else:
             keep_probs = None
 
+        attention_weights_list = []
         for i, enc_layer in enumerate(self.layers):
             if (
                     not self.training
                     or self.layerdrop_prob == 0.0
                     or keep_probs[i] > self.layerdrop_prob
             ):
-                output = enc_layer(output, padding_mask=src_key_padding_mask)
+                output, weights = enc_layer(output, padding_mask=src_key_padding_mask)
+                attention_weights_list.append(weights)
 
         output = self.norm(output)
-        return output
+        return output, attention_weights_list
 
 
 if __name__ == '__main__':
