@@ -19,7 +19,7 @@ def causal_linear_attention(qs, ks, vs, key_padding_mask=None):
     if key_padding_mask is not None:
         # is a binary mask of the shape B, T
         broadcast_mask = key_padding_mask.unsqueeze(-1).broadcast_to(vs.shape)
-        vs = vs.masked_fill_(broadcast_mask, 0.0)
+        vs = vs.masked_fill(broadcast_mask, 0.0)
 
     key_values = ks.unsqueeze(-1) @ vs.unsqueeze(-2)
     data_matrix = torch.cumsum(key_values, dim=-3)
@@ -444,6 +444,11 @@ class LinearTransformerEncoder(nn.Module):
 
 
 if __name__ == '__main__':
-    encoder = LinearTransformerEncoder(num_layers=4, nhead=4, d_ffn=128, d_model=64, kdim=8, vdim=10, dropout=0.0)
+    encoder = LinearTransformerEncoder(num_layers=4, nhead=4, d_ffn=128, d_model=64, dropout=0.0)
     src = torch.randn(2, 16, 64)
-    print(encoder(src))
+    out, _ = encoder(src)
+    print(out)
+    toy_loss = torch.sum(out)
+    print(toy_loss)
+    toy_loss.backward()
+    print("'backwards()' ran successfully")
