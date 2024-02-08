@@ -1,44 +1,14 @@
-"""Transformer implementation in the SpeechBrain style.
-Authors
-* Jianyuan Zhong 2020
-* Samuele Cornell 2021
-"""
-import math
-import torch
-import torch.nn as nn
-import speechbrain as sb
-from typing import Optional
 import numpy as np
+import torch
+from torch import nn
+import speechbrain as sb
 
+from speechbrain.nnet.activations import Swish
 from speechbrain.nnet.attention import RelPosEncXL
 from speechbrain.nnet.CNN import Conv1d
 
 
-def causal_linear_attention(qs, ks, vs, key_padding_mask=None):
-
-    if key_padding_mask is not None:
-        # is a binary mask of the shape B, T
-        broadcast_mask = key_padding_mask.unsqueeze(-1).broadcast_to(vs.shape)
-        vs = vs.masked_fill(broadcast_mask, 0.0)
-
-    key_values = ks.unsqueeze(-1) @ vs.unsqueeze(-2)
-    data_matrix = torch.cumsum(key_values, dim=-3)
-    return (qs.unsqueeze(-2) @ data_matrix).flatten(-2, -1)
-
-
-def linear_attention(qs, ks, vs, key_padding_mask=None):
-
-    if key_padding_mask is not None:
-        # is a binary mask of the shape B, T
-        broadcast_mask = key_padding_mask.unsqueeze(-1).broadcast_to(vs.shape)
-        vs = vs.masked_fill_(broadcast_mask, 0.0)
-
-    key_values = ks.unsqueeze(-1) @ vs.unsqueeze(-2)
-    data_matrix = torch.sum(key_values, dim=-3, keepdim=True)
-    return (qs.unsqueeze(-2) @ data_matrix).flatten(-2, -1)
-
-
-class GenericMultiHeadedAttention(nn.Module):
+class MultiHeadedAttention(nn.Module):
     """ The class wraps an attention function for MultiHeadedAttention
 
         Arguments
@@ -103,10 +73,10 @@ class GenericMultiHeadedAttention(nn.Module):
 
         B, L, E = query.shape
         _, S, _ = key.shape
-        H, E_q, E_k, E_v = self.nhead, self.kdim // self.nhead, self.kdim // self.nhead, self.vdim // self.nhead
+        H, E_k, E_v = self.nhead, self.kdim // self.nhead, self.vdim // self.nhead
 
         # Apply head projections to query, keys and values
-        qs = (query @ self.query_proj).view(B, L, H, E_q).transpose(-3, -2)  # -> B, H, L, E_q
+        qs = (query @ self.query_proj).view(B, L, H, E_k).transpose(-3, -2)  # -> B, H, L, E_k
         ks = (key   @   self.key_proj).view(B, S, H, E_k).transpose(-3, -2)  # -> B, H, S, E_k
         vs = (value @ self.value_proj).view(B, S, H, E_v).transpose(-3, -2)  # -> B, H, S, E_v
 
@@ -123,51 +93,19 @@ class GenericMultiHeadedAttention(nn.Module):
         vs = vs.flatten(0, 1)
 
         # Apply attention function
-        output = self.attention_fn(qs, ks, vs, head_mask)
+        output = self.attention_fn(qs, ks, vs, key_padding_mask=head_mask)
 
         # Reshape to reintroduce head dimension
-        output = output.reshape(B, H, L, E_v)
+        output["values"] = output["values"].reshape(B, H, L, E_v)
 
         # Project back up to model dim
-        output = output.transpose(-3, -2).flatten(-2, -1)  # -> B, L, H*E_v
-        output = output @ self.output_proj
+        output["values"] = output["values"].transpose(-3, -2).flatten(-2, -1)  # -> B, L, H*E_v
+        output["values"] = output["values"] @ self.output_proj
 
-        return output, None  # currently doesn't support returning attention weights
-
-
-class MultiHeadedLinearAttention(GenericMultiHeadedAttention):
-    """ The class implements Multi-headed linear attention from
-
-        Arguments
-        ----------
-        d_model: int
-            total number of features in input vectors
-        nhead : int
-            parallel attention heads.
-        kdim : int
-            total number of features in key (default: None).
-        vdim : int
-            total number of features in value (default: None).
-    """
-
-    def __init__(
-            self,
-            d_model=None,
-            nhead=None,
-            kdim=None,
-            vdim=None,
-            causal=True
-    ):
-
-        if causal:
-            attention_fn = causal_linear_attention
-        else:
-            attention_fn = linear_attention
-
-        super().__init__(d_model=d_model, nhead=nhead, attention_fn=attention_fn, kdim=kdim, vdim=vdim)
+        return output
 
 
-class LinearTransformerEncoderLayer(nn.Module):
+class TransformerEncoderLayer(nn.Module):
     """This is an implementation of self-attention encoder layer.
     Arguments
     ----------
@@ -184,7 +122,7 @@ class LinearTransformerEncoderLayer(nn.Module):
     dropout: int, optional
         The dropout value.
     activation: torch.nn.Module, optional
-        The activation function for Feed-Forward Network layer,
+        The activation function for Feed-Forward Netowrk layer,
         e.g., relu or gelu or swish.
     normalize_before: bool, optional
         Whether normalization should be applied before or after MHA or FFN in Transformer layers.
@@ -211,51 +149,16 @@ class LinearTransformerEncoderLayer(nn.Module):
 
     def __init__(
             self,
-            d_ffn,
-            nhead,
             d_model,
-            kdim=None,
-            vdim=None,
             dropout=0.0,
-            activation=nn.ReLU,
             normalize_before=False,
-            ffn_type="regularFFN",
-            ffn_cnn_kernel_size_list=[3, 3],
-            causal=False,
+            attention=None,
+            ffn=None,
     ):
         super().__init__()
 
-        self.self_att = MultiHeadedLinearAttention(
-            nhead=nhead,
-            d_model=d_model,
-            kdim=kdim,
-            vdim=vdim,
-            causal=causal
-        )
-
-        if ffn_type == "regularFFN":
-            self.pos_ffn = sb.nnet.attention.PositionalwiseFeedForward(
-                d_ffn=d_ffn,
-                input_size=d_model,
-                dropout=dropout,
-                activation=activation,
-            )
-        elif ffn_type == "1dcnn":
-            self.pos_ffn = nn.Sequential(
-                Conv1d(
-                    in_channels=d_model,
-                    out_channels=d_ffn,
-                    kernel_size=ffn_cnn_kernel_size_list[0],
-                    padding="causal" if causal else "same",
-                ),
-                nn.ReLU(),
-                Conv1d(
-                    in_channels=d_ffn,
-                    out_channels=d_model,
-                    kernel_size=ffn_cnn_kernel_size_list[1],
-                    padding="causal" if causal else "same",
-                ),
-            )
+        self.self_att = attention
+        self.pos_ffn = ffn
 
         self.norm1 = sb.nnet.normalization.LayerNorm(d_model, eps=1e-6)
         self.norm2 = sb.nnet.normalization.LayerNorm(d_model, eps=1e-6)
@@ -263,12 +166,13 @@ class LinearTransformerEncoderLayer(nn.Module):
         self.dropout2 = torch.nn.Dropout(dropout)
 
         self.normalize_before = normalize_before
-        self.pos_ffn_type = ffn_type
 
     def forward(
             self,
             src,
-            padding_mask=None
+            src_mask=None,
+            src_key_padding_mask=None,
+            pos_embs=None,
     ):
         """
         Arguments
@@ -276,7 +180,9 @@ class LinearTransformerEncoderLayer(nn.Module):
         src : torch.Tensor
             The sequence to the encoder layer.
         src_mask : torch.Tensor
-            The areas of the src that are masked
+            The mask for the src query for each example in the batch.
+        src_key_padding_mask : torch.Tensor, optional
+            The mask for the src keys for each example in the batch.
         """
 
         if self.normalize_before:
@@ -284,15 +190,17 @@ class LinearTransformerEncoderLayer(nn.Module):
         else:
             src1 = src
 
-        output, attention_weights = self.self_att(
+        output = self.self_att(
             src1,
             src1,
             src1,
-            key_padding_mask=padding_mask
+            # attn_mask=src_mask,
+            key_padding_mask=src_key_padding_mask,
+            # pos_embs=pos_embs,
         )
 
         # add & norm
-        src = src + self.dropout1(output)
+        src = src + self.dropout1(output["values"])
         if not self.normalize_before:
             src = self.norm1(src)
 
@@ -300,17 +208,18 @@ class LinearTransformerEncoderLayer(nn.Module):
             src1 = self.norm2(src)
         else:
             src1 = src
-        output = self.pos_ffn(src1)
+        output_values = self.pos_ffn(src1)
 
         # add & norm
-        output = src + self.dropout2(output)
+        output_values = src + self.dropout2(output_values)
         if not self.normalize_before:
-            output = self.norm2(output)
+            output_values = self.norm2(output_values)
 
-        return output, attention_weights
+        output["values"] = output_values
+        return output
 
 
-class LinearTransformerEncoder(nn.Module):
+class TransformerEncoder(nn.Module):
     """This class implements the transformer encoder.
     Arguments
     ---------
@@ -342,6 +251,9 @@ class LinearTransformerEncoder(nn.Module):
         If causal the Conformer convolutional layer is causal.
     layerdrop_prob: float
         The probability to drop an entire layer
+    attention_type: str, optional
+        Type of attention layer used in all Transformer or Conformer layers.
+        e.g. regularMHA or RelPosMHA.
     ffn_type: str
         type of ffn: regularFFN/1dcnn
     ffn_cnn_kernel_size_list: list of int
@@ -356,53 +268,19 @@ class LinearTransformerEncoder(nn.Module):
     torch.Size([8, 60, 512])
     """
 
-    """
-    encoder: !new:speechbrain.lobes.models.transformer.Transformer.TransformerEncoder
-        d_model: !ref <embedding_dim>
-        num_layers: 12
-        nhead: 8
-        d_ffn: 3072
-        dropout: 0.1
-        layerdrop_prob: !ref <encoder_layerdrop>
-        normalize_before: True
-        activation: !name:torch.nn.GELU
-    
-    """
-
     def __init__(
             self,
             num_layers,
-            nhead,
-            d_ffn,
             d_model=None,
-            kdim=None,
-            vdim=None,
-            dropout=0.0,
-            activation=nn.ReLU,
-            normalize_before=False,
-            causal=False,
             layerdrop_prob=0.0,
-            ffn_type="regularFFN",
-            ffn_cnn_kernel_size_list=[3, 3],
+            layer_factory=None,
     ):
         super().__init__()
 
         self.layers = torch.nn.ModuleList(
             [
-                LinearTransformerEncoderLayer(
-                    d_ffn=d_ffn,
-                    nhead=nhead,
-                    d_model=d_model,
-                    kdim=kdim,
-                    vdim=vdim,
-                    dropout=dropout,
-                    activation=activation,
-                    normalize_before=normalize_before,
-                    causal=causal,
-                    ffn_type=ffn_type,
-                    ffn_cnn_kernel_size_list=ffn_cnn_kernel_size_list,
-                )
-                for i in range(num_layers)
+                layer_factory()
+                for _ in range(num_layers)
             ]
         )
         self.norm = sb.nnet.normalization.LayerNorm(d_model, eps=1e-6)
@@ -412,43 +290,47 @@ class LinearTransformerEncoder(nn.Module):
     def forward(
             self,
             src,
-            src_key_padding_mask=None
-            # in the future we may want to support positional attention weights?
+            src_mask=None,
+            src_key_padding_mask=None,
+            pos_embs=None,
     ):
         """
         Arguments
         ----------
         src : tensor
             The sequence to the encoder layer (required).
-        src_key_padding_mask : torch.Tensor
-            The areas of the src that are masked
+        src_mask : tensor
+            The mask for the src sequence (optional).
+        src_key_padding_mask : tensor
+            The mask for the src keys per batch (optional).
         """
-        output = src
+
+        output = {"values": src}
+
         if self.layerdrop_prob > 0.0:
             keep_probs = self.rng.random(len(self.layers))
         else:
             keep_probs = None
 
-        attention_weights_list = []
+        attention_lst = []
+
         for i, enc_layer in enumerate(self.layers):
+
             if (
                     not self.training
                     or self.layerdrop_prob == 0.0
                     or keep_probs[i] > self.layerdrop_prob
             ):
-                output, weights = enc_layer(output, padding_mask=src_key_padding_mask)
-                attention_weights_list.append(weights)
 
-        output = self.norm(output)
-        return output, attention_weights_list
+                output = enc_layer(
+                    output["values"],
+                    src_mask=src_mask,
+                    src_key_padding_mask=src_key_padding_mask,
+                    pos_embs=pos_embs,
+                )
 
+                attention_lst.append(output.get("weights", None))
 
-if __name__ == '__main__':
-    encoder = LinearTransformerEncoder(num_layers=4, nhead=4, d_ffn=128, d_model=64, dropout=0.0)
-    src = torch.randn(2, 16, 64)
-    out, _ = encoder(src)
-    print(out)
-    toy_loss = torch.sum(out)
-    print(toy_loss)
-    toy_loss.backward()
-    print("'backwards()' ran successfully")
+        output_values = self.norm(output["values"])
+
+        return output_values, attention_lst
