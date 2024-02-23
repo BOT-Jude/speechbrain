@@ -1,7 +1,8 @@
 import torch
 from torch import nn
-from fairseq.modules.luna_layer import LunaEncoderLayer
+from fairseq.models.luna import LunaEncoder
 
+from fairseq.examples.linformer.linformer_src.multihead_linear_attention import MultiheadLinearAttention
 
 class LUNATransformerEncoder(nn.Module):
     """This class implements the transformer encoder.
@@ -39,27 +40,6 @@ class LUNATransformerEncoder(nn.Module):
         type of ffn: regularFFN/1dcnn
     ffn_cnn_kernel_size_list: list of int
         conv kernel size of 2 1d-convs if ffn_type is 1dcnn
-    Example
-    -------
-    >>> import torch
-    >>> x = torch.rand((8, 60, 512))
-    >>> net = TransformerEncoder(1, 8, 512, d_model=512)
-    >>> output, _ = net(x)
-    >>> output.shape
-    torch.Size([8, 60, 512])
-    """
-
-    """
-    encoder: !new:speechbrain.lobes.models.transformer.Transformer.TransformerEncoder
-        d_model: !ref <embedding_dim>
-        num_layers: 12
-        nhead: 8
-        d_ffn: 3072
-        dropout: 0.1
-        layerdrop_prob: !ref <encoder_layerdrop>
-        normalize_before: True
-        activation: !name:torch.nn.GELU
-    
     """
 
     def __init__(
@@ -67,19 +47,11 @@ class LUNATransformerEncoder(nn.Module):
             num_layers,
             d_model=None,
             layerdrop_prob=0.0,
-            luna_factory=None,
             luna_context_size=8
     ):
         super().__init__()
 
-        self.layers = torch.nn.ModuleList(
-            [
-                luna_factory()
-                for _ in range(num_layers)
-            ]
-        )
-
-        self.initial_context = nn.Parameter(torch.randn(1, luna_context_size, d_model))
+        self.model = LunaEncoder()
 
     def forward(
             self,
@@ -129,3 +101,86 @@ class LUNATransformerEncoder(nn.Module):
         output_values = self.norm(output["values"])
 
         return output_values, attention_lst
+
+
+class EncoderWrapper(nn.Module):
+    """A wrapper that adds positional information,
+    masks the input and then runs the latent encoder.
+    Arguments
+    ---------
+    in_dim : int
+        Last dimension of input tensor.
+    embedding_dim : int
+        Dimension to project input to and that the latent encoder will use.
+    latent_encoder : torch.nn.module
+        Initialized latent encoder object.
+    positional_encoding : torch.nn.module
+        Uninitialized nn.module for adding positional information, will use ``embedding_dim``.
+    dropout_encoder_input : float
+        Dropout on encoder input.
+
+    Example
+    -------
+    >>> from speechbrain.lobes.models.transformer.Transformer import TransformerEncoder
+    >>> encoder = TransformerEncoder(d_model=768, num_layers=4, nhead=4, d_ffn=1024)
+    >>> wrapper = EncoderWrapper(1024, 768, encoder)
+    >>> inputs = torch.rand(10, 12, 1024)
+    >>> outputs = wrapper(inputs)
+    >>> outputs["embeddings"].shape
+    torch.Size([10, 12, 768])
+    """
+
+    def __init__(
+            self,
+            in_dim,
+            embedding_dim,
+            latent_encoder,
+            positional_encoding=PositionalEncoding,
+            dropout_encoder_input=0.05,
+    ):
+        super().__init__()
+        self.input_projector = nn.Linear(in_dim, embedding_dim)
+        self.latent_encoder = latent_encoder
+        self.positional_encoding = positional_encoding(embedding_dim)
+        self.dropout_encoder_input = nn.Dropout(dropout_encoder_input)
+        self.mask_emb = nn.Parameter(
+            torch.FloatTensor(embedding_dim).uniform_(), requires_grad=True
+        )
+
+    def forward(
+            self, latents, wav_lens=None, padding_mask=None, mask=None,
+    ):
+        """
+        Arguments
+        ---------
+        latents : torch.Tensor, shape (B, T, C)
+            Batch of latent representations (AKA frames) output from latent extractor.
+        wav_lens : torch.Tensor, shape (B,)
+            The actual (unpadded) relative lengths for each sample of the batch (0<wav_lens<1).
+        padding_mask : Torch.Tensor, shape (B, T,)
+            Can be provided instead of wav_lens.
+        mask : torch.Tensor, shape (B, T)
+            Boolean mask which decides which latent frames will be masked.
+        """
+        results = {}
+        T = latents.size(1)
+        latents = self.input_projector(latents)
+        latents = self.dropout_encoder_input(latents)
+
+        if mask is not None:
+            latents[mask] = self.mask_emb.to(latents.dtype)
+            num_masked = mask.sum()
+            results["num_masked"] = num_masked
+            results["ratio_masked"] = num_masked / mask.numel()
+
+        if wav_lens is not None:
+            wav_lens = torch.round(wav_lens * T)
+            padding_mask = ~length_to_mask(wav_lens, dtype=bool)
+
+        latents = latents + self.positional_encoding(latents)
+        feats, _ = self.latent_encoder(
+            latents, src_key_padding_mask=padding_mask
+        )
+
+        results["embeddings"] = feats
+        return results

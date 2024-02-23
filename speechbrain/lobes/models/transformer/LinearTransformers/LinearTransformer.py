@@ -85,6 +85,42 @@ def build_linear_transformer_encoder(
     )
 
 
+class LinearTransformerEncoder(nn.Module):
+
+    def __init__(self,
+            num_layers=2,
+            nhead=4,
+            d_ffn=16,
+            d_model=8,
+            kdim=None,
+            vdim=None,
+            dropout=0.0,
+            activation=nn.ReLU,
+            normalize_before=False,
+            causal=True,
+            layerdrop_prob=0.0
+        ):
+
+        super().__init__()
+
+        self.encoder = build_linear_transformer_encoder(
+            num_layers=num_layers,
+            nhead=nhead,
+            d_ffn=d_ffn,
+            d_model=d_model,
+            kdim=kdim,
+            vdim=vdim,
+            dropout=dropout,
+            activation=activation,
+            normalize_before=normalize_before,
+            causal=causal,
+            layerdrop_prob=layerdrop_prob
+        )
+
+        def forward(self, *args, **kwargs):
+            return self.encoder(*args, **kwargs)
+
+
 if __name__ == "__main__":
 
     encoder = build_linear_transformer_encoder(
