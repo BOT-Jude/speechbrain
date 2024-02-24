@@ -3,11 +3,10 @@ from torch import nn
 import speechbrain as sb
 
 from speechbrain.lobes.models.transformer.LinearTransformers.Transformer \
-import MultiHeadedAttention, TransformerEncoderLayer, TransformerEncoder
+    import MultiHeadedAttention, TransformerEncoderLayer, TransformerEncoder
 
 
 def causal_linear_attention(qs, ks, vs, key_padding_mask=None):
-
     if key_padding_mask is not None:
         # is a binary mask of the shape B, T
         broadcast_mask = key_padding_mask.unsqueeze(-1).broadcast_to(vs.shape)
@@ -19,7 +18,6 @@ def causal_linear_attention(qs, ks, vs, key_padding_mask=None):
 
 
 def linear_attention(qs, ks, vs, key_padding_mask=None):
-
     if key_padding_mask is not None:
         # is a binary mask of the shape B, T
         broadcast_mask = key_padding_mask.unsqueeze(-1).broadcast_to(vs.shape)
@@ -45,7 +43,6 @@ def build_linear_transformer_encoder(
         causal=False,
         layerdrop_prob=0.0
 ):
-
     if causal:
         attention_fn = causal_linear_attention
     else:
@@ -88,19 +85,18 @@ def build_linear_transformer_encoder(
 class LinearTransformerEncoder(nn.Module):
 
     def __init__(self,
-            num_layers=2,
-            nhead=4,
-            d_ffn=16,
-            d_model=8,
-            kdim=None,
-            vdim=None,
-            dropout=0.0,
-            activation=nn.ReLU,
-            normalize_before=False,
-            causal=True,
-            layerdrop_prob=0.0
-        ):
-
+                 num_layers=2,
+                 nhead=4,
+                 d_ffn=16,
+                 d_model=8,
+                 kdim=None,
+                 vdim=None,
+                 dropout=0.0,
+                 activation=nn.ReLU,
+                 normalize_before=False,
+                 causal=True,
+                 layerdrop_prob=0.0
+                 ):
         super().__init__()
 
         self.encoder = build_linear_transformer_encoder(
@@ -117,12 +113,11 @@ class LinearTransformerEncoder(nn.Module):
             layerdrop_prob=layerdrop_prob
         )
 
-        def forward(self, *args, **kwargs):
-            return self.encoder(*args, **kwargs)
+    def forward(self, *args, **kwargs):
+        return self.encoder(*args, **kwargs)
 
 
 if __name__ == "__main__":
-
     encoder = build_linear_transformer_encoder(
         num_layers=2,
         nhead=4,
@@ -139,5 +134,3 @@ if __name__ == "__main__":
 
     src = torch.randn(2, 16, 8)
     encoder(src)
-
-
