@@ -23,17 +23,17 @@ def causal_attention(queries, keys, *values_list, key_padding_mask=None):
     weights = torch.exp(weights)  # we normalize later, after handling values, because each key has its own softmax
 
     if key_padding_mask is not None:
-        weights = weights.masked_fill_(key_padding_mask.unsqueeze(-2), 0.0)
+        weights = weights.masked_fill(key_padding_mask.unsqueeze(-2), 0.0)
 
-    norms = 1.0 / torch.cumsum(weights, dim=-1)
-    norms = torch.nan_to_num(norms, nan=1.0, neginf=1.0, posinf=1.0)
+    norms = torch.cumsum(weights, dim=-1)
+    norms[norms == 0.0] = 1.0
 
     # apply weights and normalize
     response_list = []
     for values in values_list:  # we compute weights once but apply them to multiple different sets of values
         weighted_values = weights.unsqueeze(-1) * values.unsqueeze(-3)  # shape  n_q x n_k x v
         response_matrix = torch.cumsum(weighted_values, dim=-2)  # cumulative sums are your friends
-        response_matrix = response_matrix * norms.unsqueeze(-1)
+        response_matrix = response_matrix / norms.unsqueeze(-1)
         response_matrix = response_matrix.transpose(-3, -2)  # shape n_k x n_q x v
         response_list.append(response_matrix.float())
 
@@ -476,5 +476,7 @@ if __name__ == "__main__":
     mask[0, 0] = True
     mask[0, 1] = True
     print(mask)
+    torch.autograd.set_detect_anomaly(True)
     output, _ = e(src, src_key_padding_mask=mask)
     print(output[..., 0])
+    torch.sum(output).backward()
