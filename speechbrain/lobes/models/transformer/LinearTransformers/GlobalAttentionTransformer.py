@@ -6,6 +6,7 @@ import math
 
 
 MIN_NORM = 1e-8
+torch.autograd.detect_anomaly(True)  # for testing
 
 
 def causal_attention(queries, keys, *values_list, key_padding_mask=None):
@@ -18,28 +19,34 @@ def causal_attention(queries, keys, *values_list, key_padding_mask=None):
     queries = queries.double()
     keys = keys.double()
     values_list = [values.double() for values in values_list]
-    D = keys.shape[-1]
+    d = keys.shape[-1]
 
     # compute unnormalized weights
     weights = (queries @ keys.transpose(-2, -1))  # shape n_q x n_k
-    weights = weights / math.sqrt(D)  # we must do this to prevent infinities and stuff
+    weights = weights / math.sqrt(d)  # we must do this to prevent infinities and stuff
     weights = torch.exp(weights - torch.mean(weights))  # subtract mean for better numerical stability
-    # we normalize later, after handling values, because each key has its own softmax
+    # we normalize later, after handling values, because each key has its own softmax normalization constant
 
     if key_padding_mask is not None:
         weights = weights.masked_fill(key_padding_mask.unsqueeze(-2), 0.0)
 
     norms = torch.cumsum(weights, dim=-1)
-    # prevents infinite norm at any point (especially important when in masked area)
+    # prevents infinite norm at any point (especially important when in the masked region)
     norms[norms <= MIN_NORM] = MIN_NORM
 
     # apply weights and normalize
     response_list = []
     for values in values_list:  # we compute weights once but apply them to multiple different sets of values
+
+        # The next line is the peak memory usage,
+        # if there were a weighted cumulative sum we wouldn't...
+        # need to do it in two steps and could save lots of memory!
         weighted_values = weights.unsqueeze(-1) * values.unsqueeze(-3)  # shape  n_q x n_k x v
         response_matrix = torch.cumsum(weighted_values, dim=-2)  # cumulative sums are your friends
+
+        # finally normalize
         response_matrix = response_matrix / norms.unsqueeze(-1)
-        response_matrix = response_matrix.transpose(-3, -2)  # shape n_k x n_q x v
+        response_matrix = response_matrix.transpose(-3, -2)  # -> n_k x n_q x v
         response_list.append(response_matrix.float())
 
     return response_list
