@@ -2,29 +2,42 @@ import torch
 from torch import nn
 import numpy as np
 import speechbrain as sb
+import math
 
 
-def global_query_attention(queries, keys, values, key_padding_mask=None):
+def causal_attention(queries, keys, *values_list, key_padding_mask=None):
     """
         Computes attention between keys and queries for each key position.
         i.e. v'_i = sum(softmax(K[:i] * Q) * V[:i])
         Has the same time complexity as normal attention.
     """
 
-    assert key_padding_mask is None, "TODO: support key_padding_mask"
+    queries = queries.double()
+    keys = keys.double()
+    values_list = [values.double() for values in values_list]
+    D = keys.shape[-1]
 
-    weights = queries.transpose(-2, -1) @ keys  # shape n_q x n_k
-    weights = torch.exp(weights)  # we normalize after handling values s.t. each key can have its own response
-    norms = torch.cumsum(weights, dim=-1)
-    weighted_values = weights.unsqueeze(-1) * values.unsqueeze(-2).unsqueeze(-2)  # shape  n_q x n_k x v
+    # compute unnormalized weights
+    weights = (queries @ keys.transpose(-2, -1))  # shape n_q x n_k
+    weights = weights / math.sqrt(D)  # we must do this to prevent infinities and stuff
+    weights = torch.exp(weights)  # we normalize later, after handling values, because each key has its own softmax
 
-    response_matrix = torch.cumsum(weighted_values, dim=-2)  # cumulative sums are your friends
-    response_matrix = response_matrix / norms.unsqueeze(-1)  # we normalize last so the maths works
-    response_matrix = response_matrix.transpose(-3, -2)  # shape n_k x n_q x v
+    if key_padding_mask is not None:
+        weights = weights.masked_fill_(key_padding_mask.unsqueeze(-2), 0.0)
 
-    # returns 'response matrix' which contains the result...
-    # at each key position for each query (respecting causal attention)
-    return response_matrix
+    norms = 1.0 / torch.cumsum(weights, dim=-1)
+    norms = torch.nan_to_num(norms, nan=1.0, neginf=1.0, posinf=1.0)
+
+    # apply weights and normalize
+    response_list = []
+    for values in values_list:  # we compute weights once but apply them to multiple different sets of values
+        weighted_values = weights.unsqueeze(-1) * values.unsqueeze(-3)  # shape  n_q x n_k x v
+        response_matrix = torch.cumsum(weighted_values, dim=-2)  # cumulative sums are your friends
+        response_matrix = response_matrix * norms.unsqueeze(-1)
+        response_matrix = response_matrix.transpose(-3, -2)  # shape n_k x n_q x v
+        response_list.append(response_matrix.float())
+
+    return response_list
 
 # maybe combine this with a windowed attention?
 # maybe add an exponential decay to the cumulative softmax?
@@ -103,9 +116,12 @@ class MultiHeadedGlobalAttention(nn.Module):
 
         # Apply attention function  ------------------
 
+        # I may or may not need to mask the keys when doing the second attention
+        # Assuming the key_mask is a contiguous block on the left
+        # the queries of masked keys will return 0 value anyway
+
         # compute response to global queries (for each key)
-        response_value_matrix = global_query_attention(cs, ks, vs, key_padding_mask=head_mask)
-        response_key_matrix = global_query_attention(cs, ks, ks, key_padding_mask=head_mask)
+        response_value_matrix, response_key_matrix = causal_attention(cs, ks, vs, ks, key_padding_mask=head_mask)
 
         # attend to response using queries
         # qs: B, H, L, 1, E_k, rkm: B, H, L, E_k, G -> B, H, L, G
@@ -119,6 +135,8 @@ class MultiHeadedGlobalAttention(nn.Module):
         # Project back up to model dim
         output_values = output_values.transpose(-3, -2).flatten(-2, -1)  # -> B, L, H*E_v
         output_values = output_values @ self.output_proj
+
+        # might want to mask here s.t. masked keys have 0 value?
 
         return output_values
 
@@ -216,7 +234,7 @@ class TransformerEncoderLayer(nn.Module):
     ):
         super().__init__()
 
-        self.self_attn = attention
+        self.self_att = attention
 
         self.pos_ffn = ffn
 
@@ -444,7 +462,16 @@ def build_global_transformer_encoder(
 if __name__ == "__main__":
     e = build_global_transformer_encoder(
         num_layers=4,
-        nhead=8,
-        d_ffn=128,
-        d_model=64,
+        nhead=2,
+        d_ffn=16,
+        d_model=4,
+        n_context=4
     )
+
+    src = torch.randn(2, 6, 4)
+    mask = torch.zeros(1, 6, dtype=torch.bool)
+    mask[0, 0] = True
+    mask[0, 1] = True
+    print(mask)
+    output, _ = e(src, src_key_padding_mask=mask)
+    print(output[..., 0])
