@@ -411,56 +411,59 @@ class TransformerEncoder(nn.Module):
         return output_values, None
 
 
-def build_global_transformer_encoder(
-        num_layers,
-        nhead,
-        d_ffn,
-        d_model=None,
-        kdim=None,
-        vdim=None,
-        dropout=0.0,
-        activation=nn.ReLU,
-        normalize_before=False,
-        layerdrop_prob=0.0,
-        n_context=32
-):
+class GlobalAttentionTransformerEncoder(TransformerEncoder):
 
-    multihead_factory = lambda: \
-        StaticContextMultiHeadedGlobalAttention(
+    def __init__(
+            self,
+            num_layers,
+            nhead,
+            d_ffn,
+            d_model=None,
+            kdim=None,
+            vdim=None,
+            dropout=0.0,
+            activation=nn.ReLU,
+            normalize_before=False,
+            layerdrop_prob=0.0,
+            n_context=32
+            ):
+
+        multihead_factory = lambda: \
+            StaticContextMultiHeadedGlobalAttention(
+                d_model=d_model,
+                nhead=nhead,
+                kdim=kdim,
+                vdim=vdim,
+                n_context=n_context
+            )
+
+        ffn_factory = lambda: \
+            sb.nnet.attention.PositionalwiseFeedForward(
+                d_ffn=d_ffn,
+                input_size=d_model,
+                dropout=dropout,
+                activation=activation,
+            )
+
+        layer_factory = lambda: \
+            TransformerEncoderLayer(
+                d_model=d_model,
+                dropout=dropout,
+                normalize_before=normalize_before,
+                attention=multihead_factory(),
+                ffn=ffn_factory(),
+            )
+
+        super().__init__(
+            num_layers=num_layers,
             d_model=d_model,
-            nhead=nhead,
-            kdim=kdim,
-            vdim=vdim,
-            n_context=n_context
+            layerdrop_prob=layerdrop_prob,
+            layer_factory=layer_factory
         )
-
-    ffn_factory = lambda: \
-        sb.nnet.attention.PositionalwiseFeedForward(
-            d_ffn=d_ffn,
-            input_size=d_model,
-            dropout=dropout,
-            activation=activation,
-        )
-
-    layer_factory = lambda: \
-        TransformerEncoderLayer(
-            d_model=d_model,
-            dropout=dropout,
-            normalize_before=normalize_before,
-            attention=multihead_factory(),
-            ffn=ffn_factory(),
-        )
-
-    return TransformerEncoder(
-        num_layers=num_layers,
-        d_model=d_model,
-        layerdrop_prob=layerdrop_prob,
-        layer_factory=layer_factory
-    )
 
 
 if __name__ == "__main__":
-    e = build_global_transformer_encoder(
+    e = GlobalAttentionTransformerEncoder(
         num_layers=4,
         nhead=2,
         d_ffn=16,
