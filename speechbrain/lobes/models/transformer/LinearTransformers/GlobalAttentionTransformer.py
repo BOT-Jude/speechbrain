@@ -23,7 +23,8 @@ def causal_attention(queries, keys, *values_list, key_padding_mask=None):
     # compute unnormalized weights
     weights = (queries @ keys.transpose(-2, -1))  # shape n_q x n_k
     weights = weights / math.sqrt(D)  # we must do this to prevent infinities and stuff
-    weights = torch.exp(weights)  # we normalize later, after handling values, because each key has its own softmax
+    weights = torch.exp(weights - torch.mean(weights))  # subtract mean for better numerical stability
+    # we normalize later, after handling values, because each key has its own softmax
 
     if key_padding_mask is not None:
         weights = weights.masked_fill(key_padding_mask.unsqueeze(-2), 0.0)
