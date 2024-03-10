@@ -6,7 +6,7 @@ import math
 
 
 MIN_NORM = 1e-8
-torch.autograd.detect_anomaly(True)  # for testing
+torch.autograd.set_detect_anomaly(True)  # for testing
 
 
 def causal_attention(queries, keys, *values_list, key_padding_mask=None):
@@ -39,8 +39,7 @@ def causal_attention(queries, keys, *values_list, key_padding_mask=None):
     for values in values_list:  # we compute weights once but apply them to multiple different sets of values
 
         # The next line is the peak memory usage,
-        # if there were a weighted cumulative sum we wouldn't...
-        # need to do it in two steps and could save lots of memory!
+        # Unlike other linear transformers the largest tensor is of size n_keys x n_context x d_model
         weighted_values = weights.unsqueeze(-1) * values.unsqueeze(-3)  # shape  n_q x n_k x v
         response_matrix = torch.cumsum(weighted_values, dim=-2)  # cumulative sums are your friends
 
