@@ -5,6 +5,9 @@ import speechbrain as sb
 import math
 
 
+MIN_NORM = 1e-8
+
+
 def causal_attention(queries, keys, *values_list, key_padding_mask=None):
     """
         Computes attention between keys and queries for each key position.
@@ -26,7 +29,8 @@ def causal_attention(queries, keys, *values_list, key_padding_mask=None):
         weights = weights.masked_fill(key_padding_mask.unsqueeze(-2), 0.0)
 
     norms = torch.cumsum(weights, dim=-1)
-    norms[norms == 0.0] = 1.0
+    # prevents infinite norm at any point (especially important when in masked area)
+    norms[norms <= MIN_NORM] = MIN_NORM
 
     # apply weights and normalize
     response_list = []
@@ -118,7 +122,7 @@ class MultiHeadedGlobalAttention(nn.Module):
 
         # I may or may not need to mask the keys when doing the second attention
         # Assuming the key_mask is a contiguous block on the left
-        # the queries of masked keys will return 0 value anyway
+        # the indexes of masked keys will have 0 value and 0 key anyway
 
         # compute response to global queries (for each key)
         response_value_matrix, response_key_matrix = causal_attention(cs, ks, vs, ks, key_padding_mask=head_mask)
@@ -134,9 +138,7 @@ class MultiHeadedGlobalAttention(nn.Module):
 
         # Project back up to model dim
         output_values = output_values.transpose(-3, -2).flatten(-2, -1)  # -> B, L, H*E_v
-        output_values = output_values @ self.output_proj
-
-        # might want to mask here s.t. masked keys have 0 value?
+        output_values = output_values @ self.output_proj  # -> B, L, E
 
         return output_values
 
@@ -422,11 +424,14 @@ class GlobalAttentionTransformerEncoder(TransformerEncoder):
             kdim=None,
             vdim=None,
             dropout=0.0,
+            causal=True,
             activation=nn.ReLU,
             normalize_before=False,
             layerdrop_prob=0.0,
             n_context=32
             ):
+
+        assert causal is True, "GlobalAttention must be causal"
 
         multihead_factory = lambda: \
             StaticContextMultiHeadedGlobalAttention(
@@ -463,6 +468,9 @@ class GlobalAttentionTransformerEncoder(TransformerEncoder):
 
 
 if __name__ == "__main__":
+
+    torch.autograd.set_detect_anomaly(True)
+
     e = GlobalAttentionTransformerEncoder(
         num_layers=4,
         nhead=2,
@@ -475,8 +483,8 @@ if __name__ == "__main__":
     mask = torch.zeros(1, 6, dtype=torch.bool)
     mask[0, 0] = True
     mask[0, 1] = True
-    print(mask)
-    torch.autograd.set_detect_anomaly(True)
     output, _ = e(src, src_key_padding_mask=mask)
-    print(output[..., 0])
-    torch.sum(output).backward()
+    print(mask)
+    print(output)
+    loss = torch.sum(output)
+    loss.backward()
