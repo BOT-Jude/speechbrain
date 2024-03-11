@@ -415,9 +415,8 @@ class TransformerEncoder(nn.Module):
                     pos_embs=pos_embs,
                 )
 
-        output_values = self.norm(output)
-
-        return output_values, None
+        output = self.norm(output)
+        return output, None  # doesn't return attention weights
 
 
 class GlobalAttentionTransformerEncoder(TransformerEncoder):
