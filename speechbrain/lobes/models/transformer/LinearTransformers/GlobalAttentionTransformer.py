@@ -4,7 +4,6 @@ import numpy as np
 import speechbrain as sb
 import math
 
-
 MIN_NORM = 1e-8
 torch.autograd.set_detect_anomaly(True)  # for testing
 
@@ -32,6 +31,7 @@ def causal_attention(queries, keys, *values_list, key_padding_mask=None):
 
     norms = torch.cumsum(weights, dim=-1)
     # prevents infinite norm at any point (especially important when in the masked region)
+    # we can't just set norms of masked keys to 1 because they may still attend to things (encoder)
     norms[norms <= MIN_NORM] = MIN_NORM
 
     # apply weights and normalize
@@ -52,7 +52,71 @@ def causal_attention(queries, keys, *values_list, key_padding_mask=None):
 
 # maybe combine this with a windowed attention?
 # maybe add an exponential decay to the cumulative softmax?
+# Using a convolution you can do exp decay and more!
 
+"""
+from fft_conv_pytorch import fft_conv  # we have to use an external library for the fft convolution
+
+class CausalConvAttention(nn.Module):
+
+    def __init__(self, attention_length, value_dim, n_queries, requires_grad=True):
+        super().__init__()
+
+        self.value_dim = value_dim
+        self.n_queries = n_queries
+        self.kernel = nn.Parameter(torch.zeros(n_queries, 1, 2*attention_length+1), requires_grad=requires_grad)
+        self.attention_length = attention_length
+
+    def get_kernel(self):
+
+        kernel = torch.exp(self.kernel)
+        kernel[:, :, :self.attention_length] = 0
+
+        return kernel
+
+    def forward(self, queries, keys, *values_list, key_padding_mask=None):
+
+        B, nK, dK = keys.shape
+        _, nQ, _ = queries.shape
+
+        # compute unnormalized weights
+        weights = (queries @ keys.transpose(-2, -1))  # shape: B x nQ x nK
+
+        # we must reduce the range of values, or we will get NaN gradients as soon as we start training
+        weights = weights / math.sqrt(dK)
+        # normalisation makes this equivalent (with better numerical stability)
+        weights = weights - torch.mean(weights)
+        # like softmax attention
+        weights = torch.exp(weights)
+
+        if key_padding_mask is not None:
+            weights = weights.masked_fill(key_padding_mask.unsqueeze(-2), 0.0)
+
+        output_list = []
+        for values in values_list:
+
+            _, _, dV = values.shape
+
+            weighted_values = weights.unsqueeze(-1) * values.unsqueeze(-3)  # shape:  B x nQ x nK x dV
+
+            # a cumulative sum can be thought of as a special case of convolution
+
+            kernel = self.get_kernel()
+
+            weighted_values = weighted_values.permute(0, 2, 3, 1).flatten(0, 1)  # include values into batch for conv
+
+            norms = fft_conv(weights, kernel, padding=nK, groups=nQ)
+            # prevents infinite norm at any point (especially important when in the masked region)
+            norms[norms <= MIN_NORM] = MIN_NORM
+            norms = norms.unsqueeze(-1).view(B, nQ, nK, dV)
+
+            output_values = fft_conv(weighted_values, kernel, padding=nK, groups=nQ)
+            output_values = output_values.unsqueeze(-3).view(B, dV, nQ, nK).permute(0, 3, 1, 2)
+            output_values = output_values / norms
+            output_list.append(output_values)
+
+        return output_list
+"""
 
 class MultiHeadedGlobalAttention(nn.Module):
 
