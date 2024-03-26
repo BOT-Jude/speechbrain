@@ -34,7 +34,9 @@ class LUNATransformerEncoderLayer(nn.Module):
     def forward(
             self,
             data,
-            key_padding_mask=None
+            src_mask=None,
+            src_key_padding_mask=None,
+            pos_embs=None,
     ):
         """
         Arguments
@@ -53,7 +55,7 @@ class LUNATransformerEncoderLayer(nn.Module):
             src1 = src
 
         # --------
-        packed, _ = self.pack_attention(context, src1, src1, key_padding_mask=key_padding_mask)
+        packed, _ = self.pack_attention(context, src1, src1, key_padding_mask=src_key_padding_mask)
         unpacked, _ = self.unpack_attention(src1, packed, packed)
         # --------
 
@@ -87,10 +89,13 @@ class AddInitialContext(nn.Module):
                  luna_context_size
                  ):
         super().__init__()
+        self.d_model = d_model
+        self.luna_context_size = luna_context_size
         self.initial_context = nn.Parameter(torch.randn(1, luna_context_size, d_model))
 
     def forward(self, src):
-        return (src, self.initial_context)
+        B, _, _ = src.shape
+        return (src, self.initial_context.expand(B, self.luna_context_size, self.d_model))
 
 
 def drop_context(data):
