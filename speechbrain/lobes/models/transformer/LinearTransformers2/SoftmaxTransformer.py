@@ -114,7 +114,7 @@ class SoftmaxMultiHeadedAttentionWithWeights(SoftmaxMultiHeadedAttention):
                 key_padding_mask=None
                 ):
 
-        output, attention_weights = super()(
+        output, attention_weights = super().forward(
             query,
             key,
             value,
