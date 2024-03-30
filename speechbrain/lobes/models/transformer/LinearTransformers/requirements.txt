@@ -1,1 +1,2 @@
 fairseq @ git+https://github.com/XuezheMax/fairseq-apollo.git@master
+transformers @ git+https://github.com/huggingface/transformers.git@master
