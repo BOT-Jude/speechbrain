@@ -1,3 +1,5 @@
+import math
+
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -69,6 +71,9 @@ class EGAMultiHeadedAttention(nn.Module):
 
         # Compute importance for each token for each head for each global channel
         ips = (query @ self.importance_proj).view(B, L, H, G).permute(0, 2, 3, 1)  # -> B, H, G, L
+        ips = ips / math.sqrt(query.shape[-1])  # normalize
+        if key_padding_mask is not None:
+            ips = ips.masked_fill(key_padding_mask.unsqueeze(-2).unsqueeze(-2), -torch.inf)
         ips = F.softmax(ips, dim=-1)
 
         # Create global queries by using softmax weighted importance of queries

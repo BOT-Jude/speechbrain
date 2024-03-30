@@ -1,3 +1,5 @@
+import math
+
 import torch
 from torch import nn
 import speechbrain as sb
@@ -6,7 +8,9 @@ from speechbrain.lobes.models.transformer.LinearTransformers2.Transformer import
 
 
 def softmax_attention(qs, ks, vs, key_padding_mask=None, causal=False):
+
     attention_scores = qs @ ks.transpose(-2, -1)
+    attention_scores = attention_scores / math.sqrt(qs.shape[-1])  # remember to normalize
 
     if key_padding_mask is not None:
         padding_mask = key_padding_mask.unsqueeze(-2).broadcast_to(attention_scores.shape)
