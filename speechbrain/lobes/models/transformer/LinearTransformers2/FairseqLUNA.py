@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import speechbrain as sb
-from speechbrain.lobes.models.transformer.LinearTransformers2.SoftmaxTransformer import SoftmaxMultiHeadedAttention
 from speechbrain.lobes.models.transformer.LinearTransformers2.Transformer import TransformerEncoder
 from fairseq.modules import LunarMultiheadAttention
 
