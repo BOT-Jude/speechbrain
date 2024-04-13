@@ -118,6 +118,17 @@ class LUNATransformerEncoder(TransformerEncoder):
                  luna_context_size=8
                  ):
 
+        num_layers = int(num_layers)
+        nhead = int(nhead)
+        d_ffn = int(d_ffn)
+        d_model = int(d_model) if d_model is not None else None
+        kdim = int(kdim) if kdim is not None else None
+        vdim = int(vdim) if vdim is not None else None
+        dropout = float(dropout)
+        layerdrop_prob = float(layerdrop_prob)
+        luna_context_size = int(luna_context_size)
+
+
         multihead_factory = lambda: \
             SoftmaxMultiHeadedAttention(
                 d_model=d_model,
@@ -145,7 +156,7 @@ class LUNATransformerEncoder(TransformerEncoder):
 
         add_initial_context = AddInitialContext(
             d_model=d_model,
-            luna_context_size=int(luna_context_size)
+            luna_context_size=luna_context_size
         )
 
         super().__init__(
