@@ -99,7 +99,7 @@ class AddInitialContext(nn.Module):
 
 
 def drop_context(data):
-    return data[0]
+    return data[0], None
 
 
 class LUNATransformerEncoder(TransformerEncoder):
@@ -145,7 +145,7 @@ class LUNATransformerEncoder(TransformerEncoder):
 
         add_initial_context = AddInitialContext(
             d_model=d_model,
-            luna_context_size=luna_context_size
+            luna_context_size=int(luna_context_size)
         )
 
         super().__init__(
