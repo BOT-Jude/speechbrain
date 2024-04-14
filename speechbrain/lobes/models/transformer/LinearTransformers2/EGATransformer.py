@@ -134,7 +134,7 @@ class EGAMultiHeadedAttention2(nn.Module):
         self.nhead = nhead
         self.nlocal = nlocal
         self.nglobal_keys = nglobal_keys
-        self.nglobal_queries = nglobal_queries
+        self.nglobal_querys = nglobal_queries
         self.nstatic = nstatic
 
         assert nlocal != 0 or nglobal_keys != 0 or nglobal_queries != 0 or nstatic != 0, \
@@ -155,12 +155,12 @@ class EGAMultiHeadedAttention2(nn.Module):
         if self.nglobal_keys != 0:
             self.key_importance_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead*self.nglobal_keys))
 
-        if self.nglobal_queries != 0:
-            self.query_importance_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead*self.nglobal_queries))
+        if self.nglobal_querys != 0:
+            self.query_importance_proj = nn.Parameter(torch.randn(1, self.d_model, self.nhead*self.nglobal_querys))
 
         if self.nstatic != 0:
             self.static_keys = nn.Parameter(torch.randn(1, self.nhead, self.nstatic, self.kdim//self.nhead))
-            self.static_value = nn.Parameter(torch.randn(1, self.nhead, self.nstatic, self.vdim//self.nhead))
+            self.static_values = nn.Parameter(torch.randn(1, self.nhead, self.nstatic, self.vdim//self.nhead))
 
         self.output_proj = nn.Parameter(torch.randn(1, self.vdim, self.d_model))
 
@@ -189,7 +189,7 @@ class EGAMultiHeadedAttention2(nn.Module):
         B, L, E = query.shape
         _, S, _ = key.shape
         H, E_k, E_v = self.nhead, self.kdim // self.nhead, self.vdim // self.nhead
-        Lk, Gk, Gq, Sk = self.nlocal, self.nglobal_keys, self.nglobal_queries, self.nstatic
+        Lk, Gk, Gq, Sk = self.nlocal, self.nglobal_keys, self.nglobal_querys, self.nstatic
 
         # Apply head projections to query, keys and values
         qs = (query @ self.query_proj).view(B, L, H, E_k).transpose(-3, -2)  # -> B, H, L, E_k
@@ -325,16 +325,22 @@ class EGATransformerEncoder(TransformerEncoder):
                  activation=nn.ReLU,
                  normalize_before=False,
                  layerdrop_prob=0.0,
-                 nglobal=8
+                 nlocal=32,
+                 nglobal_keys=16,
+                 nglobal_queries=8,
+                 nstatic=1
                  ):
 
         multihead_factory = lambda: \
-            EGAMultiHeadedAttention(
+            EGAMultiHeadedAttention2(
                 d_model=d_model,
                 nhead=nhead,
                 kdim=kdim,
                 vdim=vdim,
-                nglobal=nglobal
+                nlocal=nlocal,
+                nglobal_keys=nglobal_keys,
+                nglobal_queries=nglobal_queries,
+                nstatic=nstatic
             )
 
         ffn_factory = lambda: \
@@ -374,7 +380,10 @@ if __name__ == "__main__":
         activation=nn.ReLU,
         normalize_before=False,
         layerdrop_prob=0.0,
-        nglobal=8
+        nlocal=32,
+        nglobal_keys=16,
+        nglobal_queries=8,
+        nstatic=1
     )
 
     src = torch.randn(2, 16, 8)
